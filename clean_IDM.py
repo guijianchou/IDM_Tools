@@ -1,7 +1,7 @@
 #/usr/bin/env python
 #-*-coding;utf-8-*-
 
-__auther__='falsemeet'
+__auther__='guijianchou'
 
 'clean_IDM.py'
 
@@ -12,14 +12,16 @@ filepath="D:\\IDM TEMPS\\DwnlData\\falsemeet\\"
 filelist=os.listdir(filepath)
 for x in filelist:
     print x
-    print os.path.abspath(x)
-    
-
-if __name__=='__main__':
+    m=os.path.join('D:\\IDM TEMPS\\DwnlData\\falsemeet\\',x)
+    print m
     try:
-        shutil.rmtree(filepath)
+        shutil.rmtree(m)
     except TypeError,e:
         print 'Exception:',e
     finally:
         pass
+    
+
+if __name__=='__main__':
+   
     print 'already clean the \'IDM TEMPS\' !'
