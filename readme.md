@@ -1,6 +1,7 @@
 # IDM_clean Python 版本 0.1#
 #CHS#
 本文利用python来清除IDM下载后的残余空目录
+
 具体路径修改：“filepath”
 #存在问题#
 1、因为循环的缘故会把整个文件夹清空，因此必须是所有下载完成以后方可delete
@@ -14,6 +15,7 @@
     
 #EN#
 Those code aims to clean IDM DOWNLOAD temps with Python
+
 The specific file dictionary modified: "filepath"
 #issues#
 1.delete temp will clean those not download complete as well
