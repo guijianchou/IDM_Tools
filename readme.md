@@ -35,4 +35,4 @@ issues
 1. delete temp will clean those not download complete as well                        
 2. after delete, user file dictionary recreat maybe effect something next version                    
 1. use some function bypass files not downloads completed (os.rmdir)                             
-2. cut downloads file to some special own dolder                                     
+2. remove downloads file to some special own file folder                                     
