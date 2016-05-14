@@ -1,11 +1,10 @@
-IDM TOOLS python 版本0.2
-IDM TOOLS python Ver 0.2
-CHS
-修复问题2，补充代码2
-存在问题
-下阶段代码补充
-1. 修复问题0.1版本中的1
-2. 模块化，整合代码
+#IDM TOOLS python 版本0.2
+CHS                                                                            
+修复问题2，补充代码2                              
+存在问题                                           
+下阶段代码补充                                                     
+1. 修复问题0.1版本中的1                                         
+2. 模块化，整合代码                                     
 
 EN
 fix bug2 and issue2 in version 0.1
@@ -18,7 +17,7 @@ next version
 
 
 
-IDM_clean Python 版本 0.1
+#IDM_clean Python 版本 0.1
 CHS
 本文利用python来清除IDM下载后的残余空目录
 
