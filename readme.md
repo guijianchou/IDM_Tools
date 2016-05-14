@@ -1,4 +1,4 @@
-#IDM TOOLS python 版本0.2
+#IDM TOOLS Python 版本0.2
 CHS                                                                            
 修复问题2，补充代码2                              
 存在问题                                           
