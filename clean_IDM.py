@@ -8,11 +8,11 @@ __auther__='guijianchou'
 import os
 import shutil
 filelist=[]
-filepath="D:\\IDM TEMPS\\DwnlData\\falsemeet\\"
+filepath="D:\\IDM TEMPS\\DwnlData\\Anonymous\\"
 filelist=os.listdir(filepath)
 for x in filelist:
     print x
-    m=os.path.join('D:\\IDM TEMPS\\DwnlData\\falsemeet\\',x)
+    m=os.path.join('D:\\IDM TEMPS\\DwnlData\\Anonymous\\',x)
     print m
     try:
         shutil.rmtree(m)
