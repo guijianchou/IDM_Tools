@@ -12,7 +12,7 @@ filepath="D:\\IDM TEMPS\\DwnlData\\Anonymous\\"
 filelist=os.listdir(filepath)
 for x in filelist:
     print x
-    m=os.path.join('D:\\IDM TEMPS\\DwnlData\\Anonymous\\',x)
+    m=os.path.join(filepath,x)
     print m
     try:
         shutil.rmtree(m)

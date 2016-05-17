@@ -13,7 +13,7 @@ fileDst="E:\\DOWNLOADS\\"
 filelist=os.listdir(rootdir)
 for x in filelist:
     print x
-    m=os.path.join('D:\\IDM DOWNLOADS\\',x)
+    m=os.path.join(rootdir,x)
     print m
     shutil.copy2(m,fileDst)
     os.remove(m)
