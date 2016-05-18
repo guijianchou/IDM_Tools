@@ -8,7 +8,7 @@ __auther__='guijianchou'
 import os
 import shutil
 filelist=[]
-filepath="D:\\IDM TEMPS\\DwnlData\\Anonymous\\"
+filepath="D:\\IDM TEMPS\\DwnlData\\Anonymous\\" #if you use the defult or self folder, Please Change the correct Path. for some reason, win cannot get os.uname(),some codes hard to change
 filelist=os.listdir(filepath)
 for x in filelist:
     print x
@@ -22,6 +22,5 @@ for x in filelist:
         pass
     
 
-if __name__=='__main__':
-   
+if __name__=='__main__':  
     print 'already clean the \'IDM TEMPS\' !'
