@@ -8,6 +8,8 @@ __auther__='guijianchou'
 import os
 import shutil
 filelist=[]
+print 'Please give me your Downloads path :'
+#filepath=input()
 filepath="D:\\IDM TEMPS\\DwnlData\\falsemeet\\" #if you use the defult or self folder, Please Change the correct Path. for some reason, win cannot get os.uname(),some codes hard to change
 filelist=os.listdir(filepath)
 for x in filelist:
