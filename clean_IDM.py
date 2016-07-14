@@ -10,7 +10,7 @@ import shutil
 filelist=[]
 print 'Please give me your Downloads path :'
 #filepath=input()
-filepath="D:\\IDM TEMPS\\DwnlData\\Anonymous\\" #if you use the defult or self folder, Please Change the correct Path. for some reason, win cannot get os.uname(),some codes hard to change
+filepath="C:\\Users\\Anonymous\\Downloads\\IDM TEMPS\\DwnlData\\Anonymous\\" #if you use the defult or self folder, Please Change the correct Path. for some reason, win cannot get os.uname(),some codes hard to change
 filelist=os.listdir(filepath)
 for x in filelist:
     print x

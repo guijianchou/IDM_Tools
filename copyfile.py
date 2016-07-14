@@ -8,7 +8,7 @@ __auther__='guijianchou'
 import os
 import shutil
 filelist=[]
-rootdir="D:\\IDM DOWNLOADS\\"
+rootdir="C:\\Users\\Anonymous\\Downloads\\IDM DOWNLOADS\\"
 fileDst="E:\\DOWNLOADS\\"
 filelist=os.listdir(rootdir)
 for x in filelist:
