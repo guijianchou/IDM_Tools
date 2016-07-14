@@ -1,3 +1,11 @@
+#IDM TOOLS Python Version 0.3 will come soon
+                                                                                                                                                                                      
+ 1. All faction will be merged in to one                                                                                                                                             
+ 2. one part will be added dealing with some download settings (bug fix)                                                                                                                
+
+
+
+
 #IDM TOOLS Python Version 0.2
                                                        
 fix bug 2 and issue 2 in version 0.1                                              
