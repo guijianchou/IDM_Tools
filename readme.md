@@ -1,8 +1,18 @@
-#IDM TOOLS Python Version 0.3 will come soon
+#IDM TOOLS Python Version 0.4 will coming soon                                                                                                                                                      
+
+1.add gui (GTK if possible)                                                                                                                                                                                               
+2.adjust undownloads file detective model
+3.associate with Anti-viurs model
+4.deal with regedit IDM trash
+
+
+
+
+#IDM TOOLS Python Version 0.3
                                                                                                                                                                                       
- 1. All faction will be merged into one;                                                                                                                                            
- 2. one part will be added dealing with some download settings (bug fix);                                                                                                                 
- 3. add download and temp auto detective model;                                                                                                                                                                                                                                                      
+ 1. All faction merged into one;                                                                                                                                            
+ 2. one part added dealing with some download settings (bug fix);                                                                                                                 
+ 3. add download and temp self-design model;                                                                                                                                                                                                                                                      
 
 
 
