@@ -26,6 +26,6 @@ def __run_func2():
         pass
 
 if __name__=='__main__':
-    __run_func1()
     __run_func2()
+    __run_func1()
     print"All Job DONE !"
