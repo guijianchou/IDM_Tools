@@ -1,13 +1,19 @@
-#IDM TOOLS Python Version 0.4 will coming soon                                                                                                                                                      
+#IDM TOOLS Python Version 0.5 will coming soon                                                                                                                                                      
 
 1.add gui (GTK if possible)                                                                                                                                                                                               
 2.adjust undownloads file detective model
 3.associate with Anti-viurs model
 4.deal with regedit IDM trash
-
-
-
-
+                                                            
+                          
+                                      
+                                                                                           
+                                           
+#IDM TOOLS Python Version 0.4                                                                                                                     
+1.bug fix                                                                                                                    
+                      
+                                        
+                                                                     
 #IDM TOOLS Python Version 0.3
                                                                                                                                                                                       
  1. All faction merged into one;                                                                                                                                            
