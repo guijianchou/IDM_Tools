@@ -1,4 +1,4 @@
-#/usr/bin/env python
+#!/usr/bin/env python
 #-*-coding;utf-8-*-
 
 __auther__='guijianchou'
@@ -10,7 +10,7 @@ import shutil
 filelist=[]
 print 'If your have different TEMP path, Please change your TEMP path : \n'
 #filepath=input()
-filepath="C:\\Users\\Anonymous\\Downloads\\IDM TEMPS\\DwnlData\\Anonymous\\" #if you use the defult or self folder, Please Change the correct Path. for some reason, win cannot get os.uname(),some codes hard to change
+filepath="/mnt/e/Applications/Idm/Temps/DwnlData" #if you use the defult or self folder, Please Change the correct Path. for some reason, win cannot get os.uname(),some codes hard to change
 filelist=os.listdir(filepath)
 def __clean_file1():
     for x in filelist:

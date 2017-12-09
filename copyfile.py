@@ -1,4 +1,4 @@
-#/usr/bin/env python
+#!/usr/bin/env python
 #-*-coding:utf-8-*-
 
 __auther__='guijianchou'
@@ -7,20 +7,22 @@ __auther__='guijianchou'
 
 import os
 import shutil
+import hashlib
 filelist=[]
-rootdir="C:\\Users\\Anonymous\\Downloads\\IDM DOWNLOADS\\"
-fileDst="E:\\DOWNLOADS\\"
+rootdir="/mnt/c/Users/falsemeet/Downloads/"
+fileDst="/mnt/f/Downloads"
 filelist=os.listdir(rootdir)
 def __copy_file1():
     for x in filelist:
         print x
         m=os.path.join(rootdir,x)
         print m
+        print m,':',hashlib.sha1(m)
         shutil.copy2(m,fileDst)
         os.remove(m)
 def copy_file2():
     __copy_file1()
-    print "copy  and remove finished !\n"
+    print "copy and remove finished !\n"
 
 if __name__=='__main__':
     copy_file2()
