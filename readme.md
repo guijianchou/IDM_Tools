@@ -1,6 +1,6 @@
 #IDM TOOLS Python Version 0.5 will coming soon                                                                                                                                                      
 
-1.add gui (GTK if possible)                                                                                                                                                                                               
+1.add gui (GTK if possible) (abandoned)                                                                                                                                                                                               
 2.adjust undownloads file detective model
 3.associate with Anti-viurs model
 4.deal with regedit IDM trash
