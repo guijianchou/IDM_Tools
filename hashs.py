@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #-*-coding:utf-8-*-
 
 __auther__='guijianchou'
@@ -23,4 +23,4 @@ with open(sys.argv[1],'rb') as f:
         sha1.update(m)
 
 print("md5: {0}",format(md5.hexdigest()))
-print("sha1: {0}",format(sha.hexdigest()))
+print("sha1: {0}",format(sha1.hexdigest()))
