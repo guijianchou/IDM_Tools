@@ -5,31 +5,29 @@ __auther__='guijianchou'
 
 'hash.py'
 
-import os
-import hashlib
-import sys
+import hashlib,os
+
+def md5(filename):
+    hash_md5=hashlib.md5()
+    with open(filename,'rb') as f:
+        for chunk in iter(lambda:f.read(4096),b''):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+def sha1(filename):
+    hash_sha1=hashlib.sha1()
+    with open(filename,'rb') as f:
+        for chunk in iter(lambda:f.read(4096),b''):
+            hash_sha1.update(chunk)
+    return hash_sha1.hexdigest()
 
 
 
-filelist=os.listdir("/mnt/e/Downloads")
-#hashname=os.path("/mnt/e/Downloads/hash.txt")
-md5=hashlib.md5()
-sha1=hashlib.sha1()
-def __hashdownload():
-    for x in filelist:
-        print(os.fspath(x))
-        m=md5.update(x.encode('utf-8'))
-        print(m)
-    #    n=sha1.update(x.encode('utf-8')).hexdigest()
-        
-#        with open(hashname,'w') as t:
- #           t.write(x,'\n','md5:',m,'\n','sha1:',n,'\n\n')
- #           t.close()
- #       print (x,' md5:',m)
-def hashfile():
-    __hashdownload()
-    print ("already add new file hash into hash.txt")
+#f_local=input("Please type file location: \n")
+f_local="c/Users/Zen/Downloads"
+f_real_loc=("/mnt/"+f_local)
 
-if __name__=='__main__':
-    hashfile()
+for x in os.listdir(f_real_loc):
+    m=os.path.join(f_real_loc,x)
+    print (x+'  md5:'+md5(m))
+   # print (x+"  sha1:"+sha1(m))
     
