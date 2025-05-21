@@ -22,7 +22,7 @@ import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Generator # NoReturn removed, time removed
+from typing import Generator, Any, Callable, Dict, List, Set, Union # Optional removed
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -34,14 +34,55 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
+# --- Helper Functions ---
+
+def _resolve_and_validate_input_dir(path_str: str, dir_description: str) -> Path | None:
+    """Resolves a path string and validates if it's an existing directory."""
+    try:
+        resolved_path = Path(path_str).resolve()
+    except OSError as e:
+        logging.error(f"Error resolving {dir_description.lower()} '{path_str}': {str(e)}")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error resolving {dir_description.lower()} '{path_str}': {str(e)}", exc_info=True)
+        return None
+
+    if not resolved_path.is_dir(): # .is_dir() implies .exists()
+        logging.error(f"{dir_description} '{resolved_path}' is not a valid directory or does not exist.")
+        return None
+    
+    return resolved_path
+
+
+# --- File Cleaning Functions ---
+
 def batch_remove(targets: Generator[Path, None, None]) -> None:
-    """Batch delete files/directories with thread pooling"""
+    """Batch delete files/directories with thread pooling and error summarization."""
+    futures = []
     with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
         for target in targets:
-            executor.submit(safe_remove, target)
+            futures.append(executor.submit(safe_remove, target))
+    
+    failed_removals = 0
+    for future in futures:
+        try:
+            # Attempt to get the result, which will re-raise any exception from safe_remove
+            future.result() 
+        except Exception as e: # Exception was already logged in safe_remove
+            # The exception from safe_remove (already logged there) is caught here.
+            # We just count failures for a summary.
+            failed_removals += 1
+            # Optionally, log a more specific error message here if needed,
+            # but safe_remove already logs the details with exc_info=True.
+            # logging.debug(f"A removal task failed (already logged): {e}")
+
+    if failed_removals > 0:
+        logging.warning(f"{failed_removals} target(s) could not be removed. See previous errors for details.")
+    else:
+        logging.info("All removal tasks completed successfully.")
 
 
-def safe_remove(target: Path) -> None:
+def safe_remove(target: Path) -> None: # Keep None return type, exceptions signal failure
     """Atomic removal with detailed error handling"""
     try:
         if target.is_symlink() or target.is_file():
@@ -51,7 +92,7 @@ def safe_remove(target: Path) -> None:
             shutil.rmtree(target, ignore_errors=True)
             logging.debug(f"Removed directory: {target}")
     except Exception as e:
-        logging.error(f"Failed to remove {target}: {str(e)}")
+        logging.error(f"Failed to remove {target}: {str(e)}", exc_info=True)
         raise # Errors should propagate to be handled by the caller or dispatcher
 
 
@@ -63,7 +104,17 @@ def scan_directory(temp_path: Path) -> Generator[Path, None, None]:
     if not temp_path.is_dir():
         raise NotADirectoryError(f"Path is not a directory: {temp_path}")
 
-    yield from (entry for entry in temp_path.iterdir())
+    try:
+        yield from (entry for entry in temp_path.iterdir())
+    except FileNotFoundError: # Path disappeared between check and iterdir
+        logging.error(f"Directory not found during iteration: {temp_path}")
+        raise
+    except NotADirectoryError: # Path changed type between check and iterdir
+        logging.error(f"Path is not a directory during iteration: {temp_path}")
+        raise
+    except PermissionError: # Insufficient permissions to list directory
+        logging.error(f"Permission denied to list directory: {temp_path}")
+        raise
 
 
 # Modified clean_temp_files_main to accept parameters directly
@@ -81,16 +132,11 @@ def clean_temp_files_main(path_str: str, dry_run: bool, verbose: bool) -> int:
     # The 'verbose' parameter is primarily for the global logging setup;
     # its value is passed here for consistency but doesn't reconfigure logging.
 
-    try:
-        resolved_path = Path(path_str).resolve() # Resolve the path string to a Path object
-        
-        if not resolved_path.exists():
-            logging.error(f"Error: Path {resolved_path} does not exist.")
-            return 1
-        if not resolved_path.is_dir():
-            logging.error(f"Error: Path {resolved_path} is not a directory.")
-            return 1
+    resolved_path = _resolve_and_validate_input_dir(path_str, "Path to clean")
+    if not resolved_path:
+        return 1
 
+    try:
         targets = scan_directory(resolved_path)
         
         if dry_run:
@@ -111,59 +157,119 @@ def clean_temp_files_main(path_str: str, dry_run: bool, verbose: bool) -> int:
     except KeyboardInterrupt:
         logging.warning("Operation cancelled by user")
         return 130 # Standard exit code for SIGINT
-    except FileNotFoundError as e:
-        logging.error(f"Error: {str(e)}")
-        return 1 # General error
-    except NotADirectoryError as e:
-        logging.error(f"Error: {str(e)}")
-        return 1 # General error
+    except FileNotFoundError as e: # From scan_directory or initial checks
+        logging.error(f"File/Directory not found error: {str(e)}")
+        return 1
+    except NotADirectoryError as e: # From scan_directory or initial checks
+        logging.error(f"Path is not a directory error: {str(e)}")
+        return 1
+    except PermissionError as e: # From scan_directory
+        logging.error(f"Permission error: {str(e)}")
+        return 1
     except Exception as e:
         logging.critical(f"Fatal error in clean_temp_files_main: {str(e)}", exc_info=True)
         return 1 # General error
 
 # --- File Copying Functions (from copyfile.py) ---
 
-def transfer_file(filename: str, root_dir: Path, dst_dir: Path) -> None:
-    """Transfers a single file, then deletes original if successful."""
+def transfer_file(filename: str, root_dir: Path, dst_dir: Path) -> dict:
+    """
+    Transfers a single file, then deletes original if successful.
+    Returns a dictionary with 'filepath', 'status' ('success', 'warning', 'error'), 
+    and 'message'.
+    """
     src_path = root_dir / filename
     dst_path = dst_dir / filename
     
     try:
         shutil.copy2(src_path, dst_path)
-        # Verify copy by size before deleting original
-        if src_path.stat().st_size == dst_path.stat().st_size:
+        logging.debug(f"Successfully copied {src_path} to {dst_path}")
+
+        src_size = src_path.stat().st_size
+        dst_size = dst_path.stat().st_size
+
+        if src_size == dst_size:
             src_path.unlink()
-            logging.info(f"Successfully copied and removed: {src_path} to {dst_path}")
+            msg = f"Successfully transferred and verified {filename}: {src_path} to {dst_path}"
+            logging.info(msg)
+            return {"filepath": src_path, "status": "success", "message": msg}
         else:
-            logging.warning(f"Size mismatch for {filename} between {src_path} ({src_path.stat().st_size}B) and {dst_path} ({dst_path.stat().st_size}B). Original not deleted.")
+            msg = (
+                f"Size mismatch for {filename}: "
+                f"{src_path} ({src_size}B) and {dst_path} ({dst_size}B). "
+                "Original file not deleted."
+            )
+            logging.warning(msg)
+            # This is a warning, but the file was copied. Original is kept.
+            return {"filepath": src_path, "status": "warning", "message": msg}
+
     except FileNotFoundError:
-        logging.error(f"Error processing {filename}: Source file {src_path} not found.")
-        # Do not raise here to allow other files in batch to proceed
+        msg = f"Source file not found for {filename}: {src_path}"
+        logging.error(msg)
+        return {"filepath": src_path, "status": "error", "message": msg}
+    
+    except OSError as e:
+        msg = f"OS error processing {filename} from {src_path} to {dst_path}: {str(e)}"
+        logging.error(msg, exc_info=True)
+        return {"filepath": src_path, "status": "error", "message": msg}
+        
     except Exception as e:
-        logging.error(f"Error processing {filename} from {src_path} to {dst_path}: {str(e)}")
-        # Do not raise here to allow other files in batch to proceed
+        msg = f"Unexpected error processing {filename} from {src_path} to {dst_path}: {str(e)}"
+        logging.error(msg, exc_info=True)
+        return {"filepath": src_path, "status": "error", "message": msg}
 
 def copy_parallel(root_dir: Path, dst_dir: Path) -> None:
-    """Copies files from root_dir to dst_dir in parallel and removes originals."""
-    # List only files, not directories
+    """
+    Copies files from root_dir to dst_dir in parallel, removes originals if successful,
+    and logs a summary of outcomes.
+    """
     try:
         file_list = [f.name for f in root_dir.iterdir() if f.is_file()]
     except FileNotFoundError:
-        logging.error(f"Source directory {root_dir} not found for copy_parallel.")
-        raise # Re-raise because this is a fundamental issue for this function
+        logging.error(f"Source directory {root_dir} not found for copy_parallel. No files copied.")
+        raise # This is a fundamental issue for this function, re-raise.
     except NotADirectoryError:
-        logging.error(f"Source path {root_dir} is not a directory for copy_parallel.")
-        raise # Re-raise
+        logging.error(f"Source path {root_dir} is not a directory for copy_parallel. No files copied.")
+        raise # Re-raise.
+    except PermissionError:
+        logging.error(f"Permission denied to list source directory {root_dir} for copy_parallel. No files copied.")
+        raise # Re-raise.
 
     if not file_list:
         logging.info(f"No files found in {root_dir} to copy.")
         return
 
-    # Use functools.partial to pass root_dir and dst_dir to transfer_file
-    transfer_func = functools.partial(transfer_file, root_dir=root_dir, dst_dir=dst_dir)
+    transfer_func: Callable[[str], Dict[str, Any]] = functools.partial(transfer_file, root_dir=root_dir, dst_dir=dst_dir)
 
-    with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor: # Using a higher worker count like in original copyfile.py
-        executor.map(transfer_func, file_list)
+    results: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
+        # executor.map preserves order, which is nice but not strictly necessary here
+        results = list(executor.map(transfer_func, file_list))
+
+    succeeded_count: int = 0
+    warning_count: int = 0
+    failed_count: int = 0
+    
+    for res in results: # res is Dict[str, Any]
+        if res["status"] == "success":
+            succeeded_count += 1
+        elif res["status"] == "warning":
+            warning_count +=1
+            # Warning message already logged by transfer_file
+            logging.debug(f"Transfer warning for {res.get('filepath', 'N/A')}: {res.get('message', 'No message')}")
+        elif res["status"] == "error":
+            failed_count += 1
+            # Error message already logged by transfer_file (with exc_info if applicable)
+            logging.debug(f"Transfer error for {res.get('filepath', 'N/A')}: {res.get('message', 'No message')}")
+
+    logging.info(
+        f"Copy operation summary for {root_dir} to {dst_dir}: "
+        f"{succeeded_count} file(s) succeeded, "
+        f"{warning_count} file(s) with warnings (size mismatch, original not deleted), "
+        f"{failed_count} file(s) failed."
+    )
+    if failed_count > 0 or warning_count > 0:
+        logging.info("Review previous log messages for details on warnings and failures.")
 
 
 def copy_files_main(root_dir_str: str, dst_dir_str: str) -> int:
@@ -178,31 +284,49 @@ def copy_files_main(root_dir_str: str, dst_dir_str: str) -> int:
     # If running standalone, setup_logging might be needed here.
     # setup_logging(verbose=True) # Example: if verbose is desired
 
-    try:
-        root_dir = Path(root_dir_str).resolve()
-        dst_dir = Path(dst_dir_str).resolve()
+    root_dir = _resolve_and_validate_input_dir(root_dir_str, "Source directory")
+    if not root_dir:
+        return 1
 
-        if not root_dir.exists():
-            logging.error(f"Source directory {root_dir} does not exist.")
+    try:
+        # Resolve destination directory, but validation is different (it can be created)
+        try:
+            dst_dir = Path(dst_dir_str).resolve()
+        except OSError as e:
+            logging.error(f"Error resolving destination directory '{dst_dir_str}': {str(e)}")
             return 1
-        if not root_dir.is_dir():
-            logging.error(f"Source path {root_dir} is not a directory.")
+        except Exception as e:
+            logging.error(f"Unexpected error resolving destination directory '{dst_dir_str}': {str(e)}", exc_info=True)
             return 1
 
         # Create destination directory if it doesn't exist
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Ensured destination directory exists: {dst_dir}")
+        try:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            logging.info(f"Ensured destination directory exists: {dst_dir}")
+        except FileExistsError: # A file (not dir) exists at dst_dir path
+            logging.error(f"Cannot create destination directory: A file already exists at {dst_dir}")
+            return 1
+        except PermissionError as e:
+            logging.error(f"Permission denied to create destination directory {dst_dir}: {str(e)}")
+            return 1
+        except OSError as e: # Other OS-level errors during mkdir
+            logging.error(f"OS error creating destination directory {dst_dir}: {str(e)}")
+            return 1
+
 
         logging.info(f"Starting file copy from {root_dir} to {dst_dir}")
         copy_parallel(root_dir, dst_dir)
         logging.info(f"File copy operation completed from {root_dir} to {dst_dir}")
         return 0  # Success
 
-    except FileNotFoundError as e: # Should be caught by copy_parallel or Path checks
-        logging.error(f"File operation error in copy_files_main: {str(e)}")
+    except FileNotFoundError as e: # From copy_parallel or initial checks on root_dir
+        logging.error(f"File/Directory not found in copy operation: {str(e)}")
         return 1
-    except NotADirectoryError as e: # Should be caught by copy_parallel or Path checks
-        logging.error(f"Path error in copy_files_main: {str(e)}")
+    except NotADirectoryError as e: # From copy_parallel or initial checks on root_dir
+        logging.error(f"Path is not a directory in copy operation: {str(e)}")
+        return 1
+    except PermissionError as e: # From copy_parallel
+        logging.error(f"Permission error in copy operation: {str(e)}")
         return 1
     except Exception as e:
         logging.critical(f"Unexpected error in copy_files_main: {str(e)}", exc_info=True)
@@ -234,10 +358,10 @@ def get_hash(filepath: Path, block_size: int = 65536) -> dict[str, str] | None:
                 for alg_hash in hashes.values(): # Renamed 'alg' to 'alg_hash' to avoid conflict
                     alg_hash.update(chunk)
     except (IOError, PermissionError) as e:
-        logging.error(f"Error reading {filepath} for hashing: {str(e)}")
+        logging.error(f"Error reading {filepath} for hashing: {str(e)}") # No exc_info for specific (IOError, PermissionError)
         return None
     except Exception as e: # Catch other potential errors during file reading
-        logging.error(f"Unexpected error reading {filepath} for hashing: {str(e)}")
+        logging.error(f"Unexpected error reading {filepath} for hashing: {str(e)}", exc_info=True)
         return None
     
     return {alg_name: h.hexdigest() for alg_name, h in hashes.items()}
@@ -261,10 +385,10 @@ def get_file_metadata(filepath: Path) -> dict[str, float | int] | None:
             'modified': filepath.stat().st_mtime
         }
     except OSError as e:
-        logging.error(f"Error getting metadata for {filepath}: {str(e)}")
+        logging.error(f"Error getting metadata for {filepath}: {str(e)}") # No exc_info for specific OSError
         return None
     except Exception as e: # Catch other potential errors
-        logging.error(f"Unexpected error getting metadata for {filepath}: {str(e)}")
+        logging.error(f"Unexpected error getting metadata for {filepath}: {str(e)}", exc_info=True)
         return None
 
 
@@ -273,72 +397,80 @@ def hash_files_main(input_dir_str: str) -> int:
     Generates and updates a CSV file with file hashes and metadata for a directory.
     Returns an integer status code (0 for success, 1 for error).
     """
-    try:
-        input_dir = Path(input_dir_str).resolve()
-        if not input_dir.is_dir():
-            logging.error(f"Invalid directory path: {input_dir_str}")
-            # raise ValueError("Invalid directory path") # Replaced with return code
-            return 1
-    except Exception as e: # Catch potential errors from Path() or resolve()
-        logging.error(f"Error processing input directory path '{input_dir_str}': {str(e)}")
+    input_dir = _resolve_and_validate_input_dir(input_dir_str, "Input directory")
+    if not input_dir:
         return 1
 
-    output_filename = "hash_results.csv"
-    output_path = input_dir / output_filename
-    existing_records = {} 
+    # Type alias for the structure of records in hash_files_main
+    RecordValue = Union[str, float, int, None] # Allowing None for initially missing md5/sha1/sha256
+    FileRecord = Dict[str, RecordValue]
 
-    if output_path.exists():
-        try:
-            with open(output_path, 'r', newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
+    output_filename: str = "hash_results.csv"
+    output_path: Path = input_dir / output_filename
+    existing_records: Dict[str, FileRecord] = {} 
+
+    try:
+        with open(output_path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    if 'filename' not in row:
+                        logging.warning(f"Skipping record due to missing 'filename' in {output_path}: {row}")
+                        continue
+                    
+                    record_rel_path_str: str = row['filename']
+                    # Ensure all expected fields are present, converting types carefully
                     try:
-                        # Ensure 'filename' is present and construct full path for key
-                        if 'filename' not in row:
-                            logging.warning(f"Skipping record due to missing 'filename': {row}")
-                            continue
-                        
-                        # Store relative path as key to match os.walk behavior
-                        record_rel_path_str = row['filename'] # This is already a string
-                        # Convert to float/int, ensure all keys exist
-                        existing_records[record_rel_path_str] = { # Key is string rel_path
-                            'filename': record_rel_path_str, # Value is also string rel_path
-                            'md5': row.get('md5'),
-                            'sha1': row.get('sha1'),
-                            'sha256': row.get('sha256'),
+                        record: FileRecord = {
+                            'filename': record_rel_path_str,
+                            'md5': row.get('md5'), # Can be None if not in CSV
+                            'sha1': row.get('sha1'), # Can be None
+                            'sha256': row.get('sha256'), # Can be None
                             'created': float(row['created']),
                             'modified': float(row['modified']),
                             'size': int(row['size'])
                         }
-                    except (KeyError, ValueError) as e:
-                        logging.warning(f"Skipping invalid record in {output_path}: {row} - {str(e)}")
-                    except Exception as e: # Catch other unexpected errors
-                        logging.error(f"Unexpected error processing row in {output_path}: {row} - {str(e)}")
+                        existing_records[record_rel_path_str] = record
+                    except (KeyError, ValueError) as e: # Catch if 'created', 'modified', 'size' are missing or not convertible
+                        logging.warning(f"Skipping invalid or incomplete record in {output_path} for '{record_rel_path_str}': {row} - Error: {str(e)}")
+                except (KeyError, ValueError) as e: # Catch outer errors, e.g. if 'filename' itself causes an issue before constructing the record
+                    logging.warning(f"Skipping invalid record in {output_path}: {row} - Error: {str(e)}")
+                except Exception as e:
+                    logging.error(f"Unexpected error processing a row in {output_path}: {row} - Error: {str(e)}", exc_info=True)
+    except FileNotFoundError:
+        logging.info(f"Hash file {output_path} not found. A new one will be created.")
+        existing_records = {} # Ensure it's empty if file not found
+    except PermissionError as e:
+        logging.error(f"Permission denied reading hash file {output_path}: {str(e)}")
+        return 1 # Cannot proceed without knowing previous state or being able to update
+    except IsADirectoryError as e:
+        logging.error(f"Cannot read hash file: {output_path} is a directory: {str(e)}")
+        return 1
+    except (IOError, csv.Error) as e: # Covers other file reading issues or CSV format problems
+        logging.error(f"Error reading or parsing hash file {output_path}: {str(e)}. Treating as empty.") # Specific error type, str(e) is enough
+        existing_records = {} # Treat as empty and try to rebuild
+    except Exception as e:
+        logging.error(f"Unexpected error opening or reading {output_path}: {str(e)}", exc_info=True)
+        return 1 # More critical failure
 
-        except (IOError, csv.Error) as e:
-            logging.error(f"Error reading existing hash file {output_path}: {str(e)}")
-            # Proceeding with empty existing_records, effectively treating it as a new run for safety
-            existing_records = {}
-        except Exception as e: # Catch other unexpected errors
-            logging.error(f"Unexpected error reading {output_path}: {str(e)}")
-            return 1
-
-    initial_keys_from_csv = set(existing_records.keys())
-    new_or_updated_records = [] # List of dicts for new/changed files
-    processed_rel_paths = set() # Set of string relative paths found in current scan
+    initial_keys_from_csv: Set[str] = set(existing_records.keys())
+    # new_or_updated_records will store FileRecord dictionaries
+    new_or_updated_records: List[FileRecord] = [] 
+    processed_rel_paths: Set[str] = set()
 
     try:
-        for root_str, _, files in os.walk(input_dir):
+        for root_str, _, files_in_dir in os.walk(input_dir): # Renamed files to files_in_dir
             root_path = Path(root_str)
-            if root_path == output_path.parent and output_filename in files : # More robust check for output_path itself
-                 # if root_path == input_dir and output_filename in files: # Simpler check if output is always in input_dir root
-                pass # Allow processing if other files are in the same dir as output_path
+            # More robust check for output_path itself, avoid processing if it's the only thing
+            # This condition is tricky; os.walk yields dirpath, dirnames, filenames.
+            # We want to skip the output_path if it's listed as a file in its own parent directory.
+            # The current logic is: if root_path is input_dir and output_filename is in files_in_dir, skip it.
 
-            for filename_str in files:
+            for filename_str in files_in_dir:
                 if root_path == input_dir and filename_str == output_filename:
                     continue # Skip the hash results file itself
 
-                filepath = root_path / filename_str
+                filepath: Path = root_path / filename_str
                 
                 # Use relative path for dictionary keys and CSV storage
                 try:
@@ -353,54 +485,64 @@ def hash_files_main(input_dir_str: str) -> int:
                     logging.warning(f"Could not get metadata for {filepath}. Skipping.")
                     continue
                 
-                current_mtime = metadata['modified']
-                existing_record = existing_records.get(rel_path_str)
+                current_mtime: float = metadata['modified'] # metadata is dict[str, float | int]
+                existing_record: FileRecord | None = existing_records.get(rel_path_str)
                 
-                hashes_needed = True
+                hashes_needed: bool = True
                 if existing_record and existing_record.get('modified') == current_mtime:
-                    # File exists and modification time matches, assume hashes are current
-                    # unless hash values are missing (e.g. from an old/incomplete CSV)
                     if existing_record.get('md5') and existing_record.get('sha1') and existing_record.get('sha256'):
                         hashes_needed = False
                 
                 if not hashes_needed:
-                    # Add existing record to ensure it's kept in the output if no changes
-                    # This is important if we rewrite the whole file or want to remove old entries
-                    # For append mode, this might not be strictly needed if we only write new/changed
-                    # However, the original script implies an update-in-place behavior for existing entries.
-                    # For simplicity now, we will only add new/updated.
-                    # If existing_record is to be preserved as is, it should be added to a 'current_run_records' list.
-                    continue 
+                    # If hashes are not needed, and we are not rewriting the whole CSV / removing old entries,
+                    # we might skip. However, to ensure deleted files are removed from CSV,
+                    # we need to build a list of all *current* files.
+                    # The current logic correctly continues if hashes are not needed,
+                    # but relies on `existing_records` being updated later if it *was* needed.
+                    # This seems fine as `processed_rel_paths` tracks all files seen.
+                    # If the record is to be kept as is, it's already in existing_records.
+                    # If we were to optimize by not re-adding, it would be more complex.
+                    # The current approach will re-add it to `new_or_updated_records` if mtime changed or hashes were missing.
+                    pass # Let it proceed to hash calculation if needed or record update
 
-                hashes = get_hash(filepath)
-                if not hashes:
-                    logging.warning(f"Could not get hashes for {filepath}. Skipping.")
-                    continue
+                current_hashes: dict[str, str] | None = None
+                if hashes_needed:
+                    current_hashes = get_hash(filepath)
+                    if not current_hashes:
+                        logging.warning(f"Could not get hashes for {filepath}. Skipping.")
+                        continue
                 
                 # Prepare the full record for this file
-                current_file_record = {
+                # Ensure metadata keys are correctly typed when creating current_file_record
+                current_file_record: FileRecord = {
                     'filename': rel_path_str,
-                    **hashes,
-                    **metadata # Ensure keys are 'size', 'created', 'modified'
+                    'md5': current_hashes.get('md5') if current_hashes else (existing_record.get('md5') if existing_record else None),
+                    'sha1': current_hashes.get('sha1') if current_hashes else (existing_record.get('sha1') if existing_record else None),
+                    'sha256': current_hashes.get('sha256') if current_hashes else (existing_record.get('sha256') if existing_record else None),
+                    'size': int(metadata['size']), # Ensure int
+                    'created': float(metadata['created']), # Ensure float
+                    'modified': float(metadata['modified']) # Ensure float
                 }
 
-                # Check if it's truly new or if hashes changed
+                is_new_or_changed_record = False
                 if existing_record:
-                    # Compare new hashes with existing ones if mtime differed or hashes were missing
-                    hashes_changed = any(
-                        current_file_record.get(alg) != existing_record.get(alg)
-                        for alg in ('md5', 'sha1', 'sha256')
-                    )
-                    if not hashes_changed and not hashes_needed: # Redundant check if hashes_needed is false
-                         continue # No change in mtime or hashes
-                    # If mtime changed OR hashes changed, it's an update.
-                    logging.info(f"Updating record for {rel_path_str} (mtime or hash changed).")
+                    if hashes_needed: # Implies mtime changed or hashes were missing
+                        is_new_or_changed_record = True
+                        logging.info(f"Updating record for {rel_path_str} (mtime or hash changed).")
+                    # If not hashes_needed, it means mtime matched and all hashes were present.
+                    # In this case, the record is not considered "new or updated" for the purpose of `new_or_updated_records` list.
+                    # It will be part of `final_records_to_write` via `existing_records` if `processed_rel_paths` includes it.
+                else:
+                    is_new_or_changed_record = True
+                    logging.info(f"Adding new record for {rel_path_str}.")
+                
+                if is_new_or_changed_record:
+                    new_or_updated_records.append(current_file_record)
                 else:
                     logging.info(f"Adding new record for {rel_path_str}.")
                 
                 new_or_updated_records.append(current_file_record) 
-                # Update existing_records with the latest data (new or changed)
-                # This ensures existing_records reflects the state of files processed in this run.
+                # Always update existing_records to reflect the most current data for this file
                 existing_records[rel_path_str] = current_file_record
 
     except Exception as e:
@@ -416,21 +558,30 @@ def hash_files_main(input_dir_str: str) -> int:
 
     # Condition for writing: if new files added, existing files updated, or files were deleted.
     if new_or_updated_records or deleted_paths:
-        # Records to write are those that correspond to files currently on disk (i.e., in processed_rel_paths)
-        # and are stored with their latest data in existing_records.
-        final_records_to_write = [existing_records[key] for key in sorted(list(processed_rel_paths)) if key in existing_records]
-        # Sorting keys before list comprehension ensures sorted output if keys are iterated in order by writer.
-        # Alternatively, sort final_records_to_write by 'filename' field before writing.
-        final_records_to_write.sort(key=lambda r: r['filename'])
+        # Rebuild final_records_to_write from the updated existing_records, considering only processed_rel_paths
+        final_records_to_write: List[FileRecord] = []
+        for rel_path_key in sorted(list(processed_rel_paths)):
+            if rel_path_key in existing_records:
+                final_records_to_write.append(existing_records[rel_path_key])
+        # Sorting by 'filename' field before writing (already sorted by key, but good for explicit clarity if keys weren't sorted)
+        # final_records_to_write.sort(key=lambda r: r['filename']) # Keys are already sorted
 
-
-        fieldnames = ['filename', 'md5', 'sha1', 'sha256', 'size', 'created', 'modified']
+        fieldnames: List[str] = ['filename', 'md5', 'sha1', 'sha256', 'size', 'created', 'modified']
         try:
             with open(output_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
+                # Writer expects row values to be str, but our FileRecord has mixed types (str, float, int, None).
+                # csv.DictWriter handles string conversion for basic types (int, float)
+                # and writes None as an empty string. This behavior is acceptable.
                 writer.writeheader()
                 writer.writerows(final_records_to_write)
             logging.info(f"Hash CSV {output_path} updated. {len(new_or_updated_records)} files added/updated. {len(deleted_paths)} files removed. Total tracked: {len(final_records_to_write)}.")
+        except PermissionError as e:
+            logging.error(f"Permission denied writing hash CSV to {output_path}: {str(e)}")
+            return 1
+        except IsADirectoryError as e:
+            logging.error(f"Cannot write hash CSV: {output_path} is a directory: {str(e)}")
+            return 1
         except (IOError, csv.Error) as e:
             logging.error(f"Error writing hash CSV {output_path}: {str(e)}")
             return 1
